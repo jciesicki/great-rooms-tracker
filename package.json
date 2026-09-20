@@ -1,0 +1,16 @@
+{
+  "name": "great-rooms-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Great Rooms daily money tracker + Store of the Month engine",
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^8.1.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "pdf-parse": "^1.1.1",
+    "resend": "^4.0.1"
+  }
+}
