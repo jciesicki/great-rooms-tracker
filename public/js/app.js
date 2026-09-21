@@ -220,8 +220,17 @@ function StoreScreen() {
     ${topbar(`${state.storeName} <button class="secondary" id="logoutBtn">Log out</button>`)}
     <div class="wrap">
       <div class="card">
-        <h2>Today's numbers</h2>
-        <div class="sub">Enter this month's running totals (same as your revenue tracker) -- not just today's activity.</div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;">
+          <div>
+            <h2>Today's numbers</h2>
+            <div class="sub">Enter this month's running totals (same as your revenue tracker) -- not just today's activity.</div>
+          </div>
+          <div id="paceBadge" style="background:#f4c430;color:#1a1a1a;border-radius:12px;padding:10px 18px;text-align:center;min-width:150px;">
+            <div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;">Should be at</div>
+            <div id="paceBadgeValue" style="font-size:26px;font-weight:800;line-height:1.2;">--</div>
+            <div id="paceBadgeSub" style="font-size:11px;font-weight:600;">of budget</div>
+          </div>
+        </div>
         <div id="msg"></div>
         <div class="grid cols-4">
           <div class="field"><label>Month</label><input type="month" id="f_month" value="${curMonth}" /></div>
@@ -309,6 +318,11 @@ function StoreScreen() {
     rows.push(cell('Good Money (total)', gmPct, true));
 
     pctWrap.innerHTML = `<div class="hint" style="grid-column:1/-1;margin-bottom:6px;">Day ${day} of ${totalDays} this month -- on a straight-line pace you'd expect to be around <strong>${fmtPct(expectedPct)}</strong> of budget by now. Green/red below shows how each category compares to that pace.</div>` + rows.join('');
+
+    const badgeVal = wrap.querySelector('#paceBadgeValue');
+    const badgeSub = wrap.querySelector('#paceBadgeSub');
+    if (badgeVal) badgeVal.textContent = fmtPct(expectedPct);
+    if (badgeSub) badgeSub.textContent = `by day ${day} of ${totalDays}`;
   }
   REVCATS.forEach((c) => wrap.querySelector(`#f_${c.key}`).addEventListener('input', renderPctOfBudget));
   wrap.querySelector('#f_day').addEventListener('input', renderPctOfBudget);
