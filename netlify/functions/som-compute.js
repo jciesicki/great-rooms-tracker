@@ -27,7 +27,8 @@ async function lastDailyEntry(storeKey, month) {
 // Builds the per-store metric bundle the scoring engine needs. Trip Fee,
 // Club Fee, Agreement Fee and Renewal Fee are each that category's % of
 // Budget at month end (actual $ from the last daily entry / that store's
-// budgeted $ for the category, from Admin > Stores) -- confirmed against
+// own budgeted $ for the category, which the store manager enters at the
+// start of the month alongside Customers/PARR/BOR/APU) -- confirmed against
 // Josh's SOM.xlsx: "Trip Fee" is the IHC Fees line's % of Budget.
 async function assembleMonthData(month, storeKeys, storesConfig, overrides = {}) {
   const report = await getJSON(REPORT_STORE, month);
@@ -39,15 +40,15 @@ async function assembleMonthData(month, storeKeys, storesConfig, overrides = {})
     const rpt = report?.byStore?.[storeKey] || {};
     const eom = await getJSON(EOM_STORE, `${month}/${storeKey}`);
     const daily = await lastDailyEntry(storeKey, month);
-    const budgets = storesConfig[storeKey]?.budgets || {};
+    const begin = await getJSON(DAILY_STORE, `${storeKey}/${month}/begin`) || {};
 
     const pctOfBudget = (actual, budget) => (actual !== undefined && actual !== null && budget) ? (actual / budget) * 100 : null;
 
     const suggested = {
-      tripFeeRate: pctOfBudget(daily?.ihcFees, budgets.ihcFees),
-      clubFeeRate: pctOfBudget(daily?.clubFees, budgets.clubFees),
-      agreementFeeRate: pctOfBudget(daily?.agreementFees, budgets.agreementFees),
-      renewalFeeRate: pctOfBudget(daily?.renewalFees, budgets.renewalFees),
+      tripFeeRate: pctOfBudget(daily?.ihcFees, begin.budgetIhcFees),
+      clubFeeRate: pctOfBudget(daily?.clubFees, begin.budgetClubFees),
+      agreementFeeRate: pctOfBudget(daily?.agreementFees, begin.budgetAgreementFees),
+      renewalFeeRate: pctOfBudget(daily?.renewalFees, begin.budgetRenewalFees),
     };
     suggestions[storeKey] = suggested;
 
