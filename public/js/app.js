@@ -86,6 +86,19 @@ function el(html) {
   return t.content.firstElementChild;
 }
 
+/* The 7 revenue categories from the Good Money sheet, and the "begin" record
+   key each category's monthly budget is stored under (entered by the store
+   manager at the start of the month, alongside Customers/PARR/BOR/APU). */
+const REVCATS = [
+  { key: 'rentalRevenue', budgetKey: 'budgetRentalRevenue', label: 'Rental Revenue' },
+  { key: 'damageWaivers', budgetKey: 'budgetDamageWaivers', label: 'Damage Waivers' },
+  { key: 'renewalFees', budgetKey: 'budgetRenewalFees', label: 'Renewal Fees' },
+  { key: 'agreementFees', budgetKey: 'budgetAgreementFees', label: 'Agreement Fees' },
+  { key: 'clubFees', budgetKey: 'budgetClubFees', label: 'Club Fees' },
+  { key: 'ihcFees', budgetKey: 'budgetIhcFees', label: 'IHC Fees (Trip Fee)' },
+  { key: 'cashSales', budgetKey: 'budgetCashSales', label: 'Cash Sales' },
+];
+
 function topbar(rightHtml) {
   return `
   <div class="topbar">
@@ -197,14 +210,10 @@ function StoreScreen() {
         </div>
         <div class="section-title">Revenue (month-to-date totals)</div>
         <div class="grid cols-4">
-          ${moneyField('rentalRevenue', 'Rental Revenue')}
-          ${moneyField('damageWaivers', 'Damage Waivers')}
-          ${moneyField('renewalFees', 'Renewal Fees')}
-          ${moneyField('agreementFees', 'Agreement Fees')}
-          ${moneyField('clubFees', 'Club Fees')}
-          ${moneyField('ihcFees', 'IHC Fees')}
-          ${moneyField('cashSales', 'Cash Sales')}
+          ${REVCATS.map((c) => moneyField(c.key, c.label)).join('')}
         </div>
+        <div class="section-title">% of Budget (live, vs. this month's beginning-of-month budget)</div>
+        <div id="pctBudgetWrap" class="grid cols-4"></div>
         <div class="section-title">Customers &amp; portfolio (current, as of today)</div>
         <div class="grid cols-4">
           ${plainField('customers', 'Current Customers')}
@@ -217,12 +226,17 @@ function StoreScreen() {
 
       <div class="card">
         <h2>Beginning of month</h2>
-        <div class="sub">Set once at the start of the month -- used to calculate growth.</div>
+        <div class="sub">Set once at the start of the month, from the Good Money sheet -- used to calculate growth and to drive % of Budget above.</div>
         <div class="grid cols-4">
           ${plainField('b_customers', 'Beginning Customers')}
           ${moneyField('b_parr', 'Beginning PARR')}
           ${plainField('b_bor', 'Beginning BOR')}
           ${moneyField('b_apu', 'Beginning APU')}
+        </div>
+        <div class="section-title">Budgets for this month (from the Good Money sheet)</div>
+        <div class="grid cols-4">
+          ${REVCATS.map((c) => moneyField('b_' + c.budgetKey, 'Budget: ' + c.label)).join('')}
+          ${moneyField('b_budgetGoodMoney', 'Budgeted Good Money')}
         </div>
         <button class="secondary" id="saveBeginBtn">Save beginning-of-month</button>
       </div>
@@ -243,17 +257,39 @@ function StoreScreen() {
 
   wrap.querySelector('#logoutBtn').addEventListener('click', logout);
 
+  let beginRecord = {};
+
+  function renderPctOfBudget() {
+    const pctWrap = wrap.querySelector('#pctBudgetWrap');
+    if (!pctWrap) return;
+    const rows = REVCATS.map((c) => {
+      const val = Number(wrap.querySelector(`#f_${c.key}`).value || 0);
+      const budget = Number(beginRecord[c.budgetKey] || 0);
+      const pct = budget ? (val / budget) * 100 : null;
+      return `<div class="field"><label>${c.label}</label><div style="font-weight:700;padding:8px 0;">${fmtPct(pct)}</div></div>`;
+    });
+    const total = REVCATS.reduce((s, c) => s + Number(wrap.querySelector(`#f_${c.key}`).value || 0), 0);
+    const gmBudget = Number(beginRecord.budgetGoodMoney || 0);
+    const gmPct = gmBudget ? (total / gmBudget) * 100 : null;
+    rows.push(`<div class="field"><label>Good Money (total)</label><div style="font-weight:800;padding:8px 0;">${fmtPct(gmPct)}</div></div>`);
+    pctWrap.innerHTML = rows.join('');
+  }
+  REVCATS.forEach((c) => wrap.querySelector(`#f_${c.key}`).addEventListener('input', renderPctOfBudget));
+
   async function loadHistory() {
     const month = wrap.querySelector('#f_month').value || curMonth;
     view.month = month;
     const data = await api(`/daily-entry?month=${month}`);
     const store = data[state.storeKey] || { begin: null, days: [] };
+    beginRecord = store.begin || {};
 
     if (store.begin) {
       wrap.querySelector('#f_b_customers').value = store.begin.customers ?? '';
       wrap.querySelector('#f_b_parr').value = store.begin.parr ?? '';
       wrap.querySelector('#f_b_bor').value = store.begin.bor ?? '';
       wrap.querySelector('#f_b_apu').value = store.begin.apu ?? '';
+      REVCATS.forEach((c) => { const f = wrap.querySelector(`#f_b_${c.budgetKey}`); if (f) f.value = store.begin[c.budgetKey] ?? ''; });
+      wrap.querySelector('#f_b_budgetGoodMoney').value = store.begin.budgetGoodMoney ?? '';
     }
 
     const last = store.days[store.days.length - 1];
@@ -261,6 +297,7 @@ function StoreScreen() {
       ['rentalRevenue','damageWaivers','renewalFees','agreementFees','clubFees','ihcFees','cashSales','customers','parr','bor','apu']
         .forEach((k) => { const f = wrap.querySelector(`#f_${k}`); if (f) f.value = last[k] ?? ''; });
     }
+    renderPctOfBudget();
 
     const rows = store.days.map((d) => {
       const total = ['rentalRevenue','damageWaivers','renewalFees','agreementFees','clubFees','ihcFees','cashSales']
@@ -319,10 +356,14 @@ function StoreScreen() {
       parr: wrap.querySelector('#f_b_parr').value,
       bor: wrap.querySelector('#f_b_bor').value,
       apu: wrap.querySelector('#f_b_apu').value,
+      budgetGoodMoney: wrap.querySelector('#f_b_budgetGoodMoney').value,
     };
+    REVCATS.forEach((c) => { begin[c.budgetKey] = wrap.querySelector(`#f_b_${c.budgetKey}`).value; });
     try {
       await api('/daily-entry', { method: 'POST', body: { month, day, begin } });
       wrap.querySelector('#msg').innerHTML = '<div class="msg ok">Beginning-of-month saved.</div>';
+      beginRecord = begin;
+      renderPctOfBudget();
     } catch (e) { showErr(e); }
   });
 
@@ -387,8 +428,8 @@ function AdminDashboard() {
       return `<td>${fmt(get(last, d && d.begin))}</td>`;
     }).join('')}</tr>`;
 
-    const totalOf = (last) => !last ? null : ['rentalRevenue','damageWaivers','renewalFees','agreementFees','clubFees','ihcFees','cashSales']
-      .reduce((s, k) => s + (last[k] || 0), 0);
+    const totalOf = (last) => !last ? null : REVCATS.reduce((s, c) => s + (last[c.key] || 0), 0);
+    const budgetTotalOf = (begin) => !begin ? null : REVCATS.reduce((s, c) => s + (Number(begin[c.budgetKey]) || 0), 0);
 
     body.innerHTML = `
       <table>
@@ -403,11 +444,26 @@ function AdminDashboard() {
           ${metricRow('IHC Fees', (l) => l?.ihcFees)}
           ${metricRow('Cash Sales', (l) => l?.cashSales)}
           <tr style="font-weight:800;"><td>Total MTD Revenue</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; return `<td>${fmtMoney(totalOf(last))}</td>`; }).join('')}</tr>
-          <tr><td>% of Budget</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; const t = totalOf(last); const pct = t !== null && s.totalBudget ? (t / s.totalBudget) * 100 : null; return `<td>${fmtPct(pct)}</td>`; }).join('')}</tr>
+          <tr><td>Budgeted Good Money</td>${stores.map((s) => { const d = entriesRes[s.key]; return `<td>${fmtMoney(d?.begin?.budgetGoodMoney ?? budgetTotalOf(d?.begin))}</td>`; }).join('')}</tr>
+          <tr style="font-weight:800;"><td>% of Budget (Good Money)</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; const t = totalOf(last); const bt = d?.begin?.budgetGoodMoney || budgetTotalOf(d?.begin); const pct = t !== null && bt ? (t / bt) * 100 : null; return `<td>${fmtPct(pct)}</td>`; }).join('')}</tr>
           ${metricRow('Customers', (l) => l?.customers, fmtNum)}
           ${metricRow('PARR', (l) => l?.parr)}
           ${metricRow('BOR', (l) => l?.bor, fmtNum)}
           ${metricRow('APU', (l) => l?.apu)}
+        </tbody>
+      </table>
+      <div class="section-title">% of Budget by category</div>
+      <table>
+        <thead><tr><th>Category</th>${stores.map((s) => `<th>${s.name}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${REVCATS.map((c) => `<tr><td>${c.label}</td>${stores.map((s) => {
+            const d = entriesRes[s.key];
+            const last = d && d.days[d.days.length - 1];
+            const val = last ? last[c.key] : null;
+            const budget = d?.begin ? Number(d.begin[c.budgetKey]) : null;
+            const pct = (val !== null && val !== undefined && budget) ? (val / budget) * 100 : null;
+            return `<td>${fmtPct(pct)}</td>`;
+          }).join('')}</tr>`).join('')}
         </tbody>
       </table>`;
   }
@@ -421,7 +477,7 @@ function AdminDashboard() {
 
 function AdminStores() {
   const box = el(`<div><div class="card"><h2>Stores</h2>
-    <div class="sub">Set a monthly budget for each revenue category -- these drive both the Dashboard's % of Budget and the Store of the Month fee-rate scoring (Trip/Club/Agreement/Renewal Fee = that category's actual ÷ budget).</div>
+    <div class="sub">Manage store names and PINs. Monthly budgets aren't set here anymore -- each store manager enters their own budget numbers (from the Good Money sheet) in their "Beginning of month" section at the start of each month.</div>
     <div id="storesBody"><div class="hint">Loading…</div></div></div>
   <div class="card">
     <h2>Add a store</h2>
@@ -430,26 +486,19 @@ function AdminStores() {
       <div class="field"><label>Name</label><input id="ns_name" placeholder="e.g. Tampa" /></div>
       <div class="field"><label>PIN</label><input id="ns_pin" placeholder="4-digit PIN" /></div>
     </div>
-    <button id="addStoreBtn">Add store (set its budgets below afterward)</button>
+    <button id="addStoreBtn">Add store</button>
     <div id="addMsg"></div>
   </div></div>`);
 
-  let categories = [];
-
   async function load() {
-    const { stores, categories: cats } = await api('/stores');
-    categories = cats;
+    const { stores } = await api('/stores');
     const body = box.querySelector('#storesBody');
     body.innerHTML = stores.map((s) => `
       <div style="border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:16px;">
-        <div class="grid cols-3" style="align-items:end;margin-bottom:10px;">
+        <div class="grid cols-3" style="align-items:end;">
           <div class="field"><label>Name</label><input data-key="${s.key}" data-field="name" value="${s.name}" /></div>
           <div class="field"><label>New PIN (blank = unchanged)</label><input data-key="${s.key}" data-field="pin" placeholder="••••" /></div>
           <button data-save="${s.key}">Save ${s.name}</button>
-        </div>
-        <div class="section-title" style="margin:6px 0;">Monthly budgets by category (total: ${fmtMoney(s.totalBudget)})</div>
-        <div class="grid cols-4">
-          ${categories.map((c) => `<div class="field"><label>${c.label}</label><input data-key="${s.key}" data-field="budget_${c.key}" type="number" value="${s.budgets?.[c.key] || 0}" /></div>`).join('')}
         </div>
       </div>`).join('');
     body.querySelectorAll('button[data-save]').forEach((btn) => {
@@ -457,10 +506,8 @@ function AdminStores() {
         const key = btn.dataset.save;
         const name = body.querySelector(`input[data-key="${key}"][data-field="name"]`).value;
         const pin = body.querySelector(`input[data-key="${key}"][data-field="pin"]`).value;
-        const budgets = {};
-        categories.forEach((c) => { budgets[c.key] = body.querySelector(`input[data-key="${key}"][data-field="budget_${c.key}"]`).value; });
         try {
-          await api('/stores', { method: 'PUT', body: { key, name, budgets, pin: pin || undefined } });
+          await api('/stores', { method: 'PUT', body: { key, name, pin: pin || undefined } });
           btn.textContent = 'Saved ✓';
           setTimeout(() => (btn.textContent = `Save ${name}`), 1500);
           await load();
@@ -476,7 +523,7 @@ function AdminStores() {
     if (!key || !name || !pin) { box.querySelector('#addMsg').innerHTML = '<div class="msg error">Key, name and PIN are required.</div>'; return; }
     try {
       await api('/stores', { method: 'PUT', body: { key, name, pin } });
-      box.querySelector('#addMsg').innerHTML = '<div class="msg ok">Store added -- set its budgets below.</div>';
+      box.querySelector('#addMsg').innerHTML = '<div class="msg ok">Store added.</div>';
       ['ns_key','ns_name','ns_pin'].forEach((id) => (box.querySelector(`#${id}`).value = ''));
       await load();
     } catch (e) { box.querySelector('#addMsg').innerHTML = `<div class="msg error">${e.message}</div>`; }
@@ -623,7 +670,7 @@ function AdminMonthEnd() {
       ${data.salesperson ? fmtWinnerCard('person', '🏆 Salesperson of the Month', data.salesperson.name, `${data.salesperson.rents} rents · ${names[data.salesperson.storeKey] || data.salesperson.storeKey}`) : '<div class="hint">Add associate rents above to determine Salesperson of the Month.</div>'}
       ${fmtWinnerCard('collections', '🏆 Collections of the Month', names[data.collections.winner] || data.collections.winner, `${data.collections.totals[data.collections.winner].toFixed(0)} points`)}
 
-      <div class="section-title">Fee rates -- % of Budget (auto-calculated from budgets in Admin &gt; Stores; editable if something needs correcting)</div>
+      <div class="section-title">Fee rates -- % of Budget (auto-calculated from each store's own beginning-of-month budget entry; editable if something needs correcting)</div>
       <table>
         <thead><tr><th>Store</th><th>Trip Fee (IHC)</th><th>Club Fee</th><th>Agreement Fee</th><th>Renewal Fee</th></tr></thead>
         <tbody>
