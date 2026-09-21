@@ -56,7 +56,11 @@ function fileToBase64(file) {
 function fmtMoney(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
   const sign = n < 0 ? '-' : '';
-  return `${sign}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  const abs = Math.abs(n);
+  // Show cents only when the actual number has them (e.g. APU $70.33) --
+  // don't round real numbers away just to keep whole-dollar figures tidy.
+  const hasCents = Math.round(abs * 100) % 100 !== 0;
+  return `${sign}$${abs.toLocaleString(undefined, { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })}`;
 }
 function fmtNum(n) {
   if (n === null || n === undefined || Number.isNaN(n)) return '—';
@@ -79,6 +83,21 @@ function todayYMD() {
 function monthLabel(month) {
   const [y, m] = month.split('-');
   return new Date(Number(y), Number(m) - 1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+function daysInMonth(monthStr) {
+  const [y, m] = monthStr.split('-').map(Number);
+  return new Date(y, m, 0).getDate();
+}
+// Straight-line pace: on day D of a month with N days, you'd "expect" to be
+// at D/N of budget if revenue came in evenly all month. Past months are 100%
+// (the month's over), future months are 0% (hasn't started).
+function expectedPaceFor(monthStr, dayOverride) {
+  const { month: curM, day: curD } = todayYMD();
+  const totalDays = daysInMonth(monthStr);
+  const day = dayOverride ?? curD;
+  if (monthStr === curM) return Math.min(100, (day / totalDays) * 100);
+  if (monthStr < curM) return 100;
+  return 0;
 }
 function el(html) {
   const t = document.createElement('template');
@@ -236,7 +255,7 @@ function StoreScreen() {
         <div class="section-title">Budgets for this month (from the Good Money sheet)</div>
         <div class="grid cols-4">
           ${REVCATS.map((c) => moneyField('b_' + c.budgetKey, 'Budget: ' + c.label)).join('')}
-          ${moneyField('b_budgetGoodMoney', 'Budgeted Good Money')}
+          <div class="field"><label>Budgeted Good Money (auto-totaled)</label><input type="number" step="0.01" id="f_b_budgetGoodMoney" readonly /></div>
         </div>
         <button class="secondary" id="saveBeginBtn">Save beginning-of-month</button>
       </div>
@@ -262,19 +281,43 @@ function StoreScreen() {
   function renderPctOfBudget() {
     const pctWrap = wrap.querySelector('#pctBudgetWrap');
     if (!pctWrap) return;
+    const month = wrap.querySelector('#f_month').value || curMonth;
+    const day = Number(wrap.querySelector('#f_day').value || curDay);
+    const expectedPct = expectedPaceFor(month, day);
+    const totalDays = daysInMonth(month);
+
+    function cell(label, pct, bold) {
+      let vsPace = '';
+      if (pct !== null && expectedPct !== null) {
+        const diff = pct - expectedPct;
+        const color = diff >= 0 ? '#1a7f37' : '#c62828';
+        const sign = diff >= 0 ? '+' : '';
+        vsPace = `<div style="color:${color};font-size:12px;font-weight:600;">${sign}${diff.toFixed(1)} pts vs. pace</div>`;
+      }
+      return `<div class="field"><label>${label}</label><div style="font-weight:${bold ? 800 : 700};padding:4px 0;">${fmtPct(pct)}</div>${vsPace}</div>`;
+    }
+
     const rows = REVCATS.map((c) => {
       const val = Number(wrap.querySelector(`#f_${c.key}`).value || 0);
       const budget = Number(beginRecord[c.budgetKey] || 0);
       const pct = budget ? (val / budget) * 100 : null;
-      return `<div class="field"><label>${c.label}</label><div style="font-weight:700;padding:8px 0;">${fmtPct(pct)}</div></div>`;
+      return cell(c.label, pct, false);
     });
     const total = REVCATS.reduce((s, c) => s + Number(wrap.querySelector(`#f_${c.key}`).value || 0), 0);
     const gmBudget = Number(beginRecord.budgetGoodMoney || 0);
     const gmPct = gmBudget ? (total / gmBudget) * 100 : null;
-    rows.push(`<div class="field"><label>Good Money (total)</label><div style="font-weight:800;padding:8px 0;">${fmtPct(gmPct)}</div></div>`);
-    pctWrap.innerHTML = rows.join('');
+    rows.push(cell('Good Money (total)', gmPct, true));
+
+    pctWrap.innerHTML = `<div class="hint" style="grid-column:1/-1;margin-bottom:6px;">Day ${day} of ${totalDays} this month -- on a straight-line pace you'd expect to be around <strong>${fmtPct(expectedPct)}</strong> of budget by now. Green/red below shows how each category compares to that pace.</div>` + rows.join('');
   }
   REVCATS.forEach((c) => wrap.querySelector(`#f_${c.key}`).addEventListener('input', renderPctOfBudget));
+  wrap.querySelector('#f_day').addEventListener('input', renderPctOfBudget);
+
+  function recomputeBudgetGoodMoney() {
+    const total = REVCATS.reduce((s, c) => s + Number(wrap.querySelector(`#f_b_${c.budgetKey}`).value || 0), 0);
+    wrap.querySelector('#f_b_budgetGoodMoney').value = total ? total.toFixed(2) : '';
+  }
+  REVCATS.forEach((c) => wrap.querySelector(`#f_b_${c.budgetKey}`).addEventListener('input', recomputeBudgetGoodMoney));
 
   async function loadHistory() {
     const month = wrap.querySelector('#f_month').value || curMonth;
@@ -289,7 +332,7 @@ function StoreScreen() {
       wrap.querySelector('#f_b_bor').value = store.begin.bor ?? '';
       wrap.querySelector('#f_b_apu').value = store.begin.apu ?? '';
       REVCATS.forEach((c) => { const f = wrap.querySelector(`#f_b_${c.budgetKey}`); if (f) f.value = store.begin[c.budgetKey] ?? ''; });
-      wrap.querySelector('#f_b_budgetGoodMoney').value = store.begin.budgetGoodMoney ?? '';
+      recomputeBudgetGoodMoney();
     }
 
     const last = store.days[store.days.length - 1];
@@ -430,6 +473,13 @@ function AdminDashboard() {
 
     const totalOf = (last) => !last ? null : REVCATS.reduce((s, c) => s + (last[c.key] || 0), 0);
     const budgetTotalOf = (begin) => !begin ? null : REVCATS.reduce((s, c) => s + (Number(begin[c.budgetKey]) || 0), 0);
+    const expectedPct = expectedPaceFor(month);
+    function pctCell(pct) {
+      if (pct === null || pct === undefined) return `<td>${fmtPct(null)}</td>`;
+      const diff = pct - expectedPct;
+      const color = diff >= 0 ? '#1a7f37' : '#c62828';
+      return `<td>${fmtPct(pct)}<div style="color:${color};font-size:11px;font-weight:600;">${diff >= 0 ? '+' : ''}${diff.toFixed(1)} vs pace</div></td>`;
+    }
 
     body.innerHTML = `
       <table>
@@ -445,7 +495,7 @@ function AdminDashboard() {
           ${metricRow('Cash Sales', (l) => l?.cashSales)}
           <tr style="font-weight:800;"><td>Total MTD Revenue</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; return `<td>${fmtMoney(totalOf(last))}</td>`; }).join('')}</tr>
           <tr><td>Budgeted Good Money</td>${stores.map((s) => { const d = entriesRes[s.key]; return `<td>${fmtMoney(d?.begin?.budgetGoodMoney ?? budgetTotalOf(d?.begin))}</td>`; }).join('')}</tr>
-          <tr style="font-weight:800;"><td>% of Budget (Good Money)</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; const t = totalOf(last); const bt = d?.begin?.budgetGoodMoney || budgetTotalOf(d?.begin); const pct = t !== null && bt ? (t / bt) * 100 : null; return `<td>${fmtPct(pct)}</td>`; }).join('')}</tr>
+          <tr style="font-weight:800;"><td>% of Budget (Good Money)</td>${stores.map((s) => { const d = entriesRes[s.key]; const last = d && d.days[d.days.length - 1]; const t = totalOf(last); const bt = d?.begin?.budgetGoodMoney || budgetTotalOf(d?.begin); const pct = t !== null && bt ? (t / bt) * 100 : null; return pctCell(pct); }).join('')}</tr>
           ${metricRow('Customers', (l) => l?.customers, fmtNum)}
           ${metricRow('PARR', (l) => l?.parr)}
           ${metricRow('BOR', (l) => l?.bor, fmtNum)}
@@ -453,6 +503,7 @@ function AdminDashboard() {
         </tbody>
       </table>
       <div class="section-title">% of Budget by category</div>
+      <div class="hint" style="margin-bottom:6px;">Expected pace for ${monthLabel(month)}: <strong>${fmtPct(expectedPct)}</strong> of budget on a straight-line basis. Green = ahead of pace, red = behind.</div>
       <table>
         <thead><tr><th>Category</th>${stores.map((s) => `<th>${s.name}</th>`).join('')}</tr></thead>
         <tbody>
@@ -462,7 +513,7 @@ function AdminDashboard() {
             const val = last ? last[c.key] : null;
             const budget = d?.begin ? Number(d.begin[c.budgetKey]) : null;
             const pct = (val !== null && val !== undefined && budget) ? (val / budget) * 100 : null;
-            return `<td>${fmtPct(pct)}</td>`;
+            return pctCell(pct);
           }).join('')}</tr>`).join('')}
         </tbody>
       </table>`;
