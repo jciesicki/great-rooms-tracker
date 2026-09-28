@@ -210,6 +210,113 @@ function LoginScreen() {
   return wrap;
 }
 
+/* ---------------- Printable team report ---------------- */
+
+function buildTeamReportHtml(d) {
+  const catRows = d.catRows.map((r) => {
+    const cls = r.diff === null ? '' : (r.diff >= 0 ? 'good' : 'bad');
+    const diffTxt = r.diff === null ? '—' : `${r.diff >= 0 ? '+' : ''}${r.diff.toFixed(1)} pts`;
+    return `<tr>
+      <td>${r.label}</td>
+      <td>${fmtMoney(r.val)}</td>
+      <td>${fmtMoney(r.budget)}</td>
+      <td class="${cls}">${fmtPct(r.pct)}</td>
+      <td class="${cls}">${diffTxt}</td>
+    </tr>`;
+  }).join('');
+
+  const highlightBox = (cls, icon, title, items) => {
+    if (!items.length) return '';
+    return `<div class="highlight-box highlight-${cls}">
+      <div class="highlight-title">${icon} ${title}</div>
+      ${items.map((r) => `<div class="highlight-item"><strong>${r.label}</strong> -- ${fmtPct(r.pct)} of budget (${r.diff >= 0 ? '+' : ''}${r.diff.toFixed(1)} pts vs. where we should be)</div>`).join('')}
+    </div>`;
+  };
+
+  const growthRow = (label, cur, begin, fmt = fmtMoney) => `<tr>
+    <td>${label}</td><td>${fmt(begin)}</td><td>${fmt(cur)}</td>
+    <td class="${(cur - begin) >= 0 ? 'good' : 'bad'}">${(cur - begin) >= 0 ? '+' : ''}${fmt === fmtNum ? Math.round(cur - begin).toLocaleString() : fmt(cur - begin)}</td>
+  </tr>`;
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8" />
+<title>${d.storeName} -- Team Report -- ${monthLabel(d.month)} day ${d.day}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; margin: 0; padding: 32px; color: #1a1a1a; background: #fff; }
+  .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 5px solid #1a7f37; padding-bottom: 16px; margin-bottom: 20px; }
+  .brand { font-size: 24px; font-weight: 800; color: #1a7f37; }
+  .brand small { display: block; font-size: 11px; font-weight: 600; color: #666; letter-spacing: 0.04em; }
+  .meta { text-align: right; }
+  .meta .store { font-weight: 800; font-size: 18px; }
+  .meta .date { font-size: 13px; color: #555; }
+  .pace-banner { background: linear-gradient(135deg, #f4c430, #f0b429); border-radius: 12px; padding: 16px 22px; margin-bottom: 22px; display: flex; justify-content: space-between; align-items: center; }
+  .pace-banner .label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #4a3800; }
+  .pace-banner .sub { font-size: 13px; color: #4a3800; margin-top: 2px; }
+  .pace-banner .big { font-size: 34px; font-weight: 800; color: #1a1a1a; }
+  .section-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: #555; margin: 22px 0 8px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #e5e5e5; font-size: 13px; }
+  th { background: #1a7f37; color: #fff; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .good { color: #1a7f37; font-weight: 700; }
+  .bad { color: #c62828; font-weight: 700; }
+  .highlight-box { border-radius: 10px; padding: 14px 18px; margin-bottom: 10px; }
+  .highlight-good { background: #e8f5e9; border-left: 6px solid #1a7f37; }
+  .highlight-bad { background: #fdecea; border-left: 6px solid #c62828; }
+  .highlight-title { font-weight: 800; font-size: 13px; margin-bottom: 6px; }
+  .highlight-item { font-size: 13px; padding: 2px 0; }
+  .no-print { margin-bottom: 18px; }
+  .no-print button { padding: 10px 22px; font-weight: 700; font-size: 14px; border-radius: 8px; border: none; background: #1a7f37; color: #fff; cursor: pointer; }
+  .footer { margin-top: 26px; font-size: 11px; color: #888; text-align: center; }
+  @media print {
+    body { padding: 14px; }
+    .no-print { display: none; }
+  }
+</style></head>
+<body>
+  <div class="no-print"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <div class="header">
+    <div class="brand">GREAT ROOMS<small>SALES &amp; LEASE PURCHASE</small></div>
+    <div class="meta"><div class="store">${d.storeName}</div><div class="date">${monthLabel(d.month)} -- Day ${d.day} of ${d.totalDays}</div></div>
+  </div>
+
+  <div class="pace-banner">
+    <div><div class="label">Team meeting report</div><div class="sub">Where we should be vs. where we actually are today</div></div>
+    <div style="text-align:right;"><div class="label">Expected pace</div><div class="big">${fmtPct(d.expectedPct)}</div></div>
+  </div>
+
+  ${highlightBox('good', '🎉', "What's working", d.good)}
+  ${highlightBox('bad', '⚠️', 'Needs attention', d.bad)}
+  ${!d.good.length && !d.bad.length ? '<div class="highlight-box" style="background:#f5f5f5;border-left:6px solid #999;">Set this month\'s budget numbers in "Beginning of month" to see pace comparisons here.</div>' : ''}
+
+  <div class="section-title">Revenue by category</div>
+  <table>
+    <thead><tr><th>Category</th><th>Month-to-date</th><th>Budget</th><th>% of Budget</th><th>vs. Pace</th></tr></thead>
+    <tbody>
+      ${catRows}
+      <tr style="font-weight:800;background:#f7f7f7;">
+        <td>Good Money (total)</td><td>${fmtMoney(d.total)}</td><td>${fmtMoney(d.gmBudget)}</td>
+        <td class="${d.gmDiff === null ? '' : (d.gmDiff >= 0 ? 'good' : 'bad')}">${fmtPct(d.gmPct)}</td>
+        <td class="${d.gmDiff === null ? '' : (d.gmDiff >= 0 ? 'good' : 'bad')}">${d.gmDiff === null ? '—' : `${d.gmDiff >= 0 ? '+' : ''}${d.gmDiff.toFixed(1)} pts`}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-title">Customers &amp; portfolio -- growth this month</div>
+  <table>
+    <thead><tr><th>Metric</th><th>Beginning of month</th><th>Today</th><th>Change</th></tr></thead>
+    <tbody>
+      ${growthRow('Customers', d.customers, d.bCustomers, fmtNum)}
+      ${growthRow('PARR', d.parr, d.bParr)}
+      ${growthRow('BOR', d.bor, d.bBor, fmtNum)}
+      ${growthRow('APU', d.apu, d.bApu)}
+    </tbody>
+  </table>
+
+  <div class="footer">Generated ${new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })} -- Great Rooms Tracker</div>
+</body></html>`;
+}
+
 /* ---------------- Store daily-entry screen ---------------- */
 
 function StoreScreen() {
@@ -250,6 +357,7 @@ function StoreScreen() {
           ${moneyField('apu', 'Current APU')}
         </div>
         <button id="saveBtn">Save today's numbers</button>
+        <button class="secondary" id="printReportBtn" type="button">Print team report</button>
       </div>
 
       <div class="card">
@@ -403,6 +511,47 @@ function StoreScreen() {
       wrap.querySelector('#msg').innerHTML = '<div class="msg ok">Saved.</div>';
       await loadHistory();
     } catch (e) { showErr(e); }
+  });
+
+  wrap.querySelector('#printReportBtn').addEventListener('click', () => {
+    const month = wrap.querySelector('#f_month').value || curMonth;
+    const day = Number(wrap.querySelector('#f_day').value || curDay);
+    const totalDays = daysInMonth(month);
+    const expectedPct = expectedPaceFor(month, day);
+
+    const catRows = REVCATS.map((c) => {
+      const val = Number(wrap.querySelector(`#f_${c.key}`).value || 0);
+      const budget = Number(beginRecord[c.budgetKey] || 0);
+      const pct = budget ? (val / budget) * 100 : null;
+      const diff = pct === null ? null : pct - expectedPct;
+      return { label: c.label, val, budget, pct, diff };
+    });
+    const total = REVCATS.reduce((s, c) => s + Number(wrap.querySelector(`#f_${c.key}`).value || 0), 0);
+    const gmBudget = Number(beginRecord.budgetGoodMoney || 0);
+    const gmPct = gmBudget ? (total / gmBudget) * 100 : null;
+    const gmDiff = gmPct === null ? null : gmPct - expectedPct;
+
+    const ranked = catRows.filter((r) => r.diff !== null).slice().sort((a, b) => b.diff - a.diff);
+    const good = ranked.filter((r) => r.diff >= 0).slice(0, 2);
+    const bad = ranked.filter((r) => r.diff < 0).slice(-2).reverse();
+
+    const reportHtml = buildTeamReportHtml({
+      storeName: state.storeName, month, day, totalDays, expectedPct,
+      catRows, total, gmBudget, gmPct, gmDiff, good, bad,
+      customers: Number(wrap.querySelector('#f_customers').value || 0),
+      parr: Number(wrap.querySelector('#f_parr').value || 0),
+      bor: Number(wrap.querySelector('#f_bor').value || 0),
+      apu: Number(wrap.querySelector('#f_apu').value || 0),
+      bCustomers: Number(beginRecord.customers || 0),
+      bParr: Number(beginRecord.parr || 0),
+      bBor: Number(beginRecord.bor || 0),
+      bApu: Number(beginRecord.apu || 0),
+    });
+
+    const w = window.open('', '_blank');
+    if (!w) { alert('Please allow pop-ups for this site to view the printable report.'); return; }
+    w.document.write(reportHtml);
+    w.document.close();
   });
 
   wrap.querySelector('#saveBeginBtn').addEventListener('click', async () => {
