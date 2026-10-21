@@ -3,7 +3,7 @@
 /* ---------------- EmailJS "Send to Josh" ---------------- */
 const EMAILJS_PUBLIC_KEY  = 'D4UP5YR4sV8mZgh8w';
 const EMAILJS_SERVICE_ID  = 'service_9sq6odg';
-const EMAILJS_TEMPLATE_ID = '24nnybd';
+const EMAILJS_TEMPLATE_ID = 'template_d3wc9ya';
 
 function loadEmailJS() {
   return new Promise((resolve) => {
