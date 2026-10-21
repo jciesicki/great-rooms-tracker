@@ -1,5 +1,63 @@
 /* Great Rooms Tracker -- single-file SPA. No build step, no framework. */
 
+/* ---------------- EmailJS "Send to Josh" ---------------- */
+const EMAILJS_PUBLIC_KEY  = 'D4UP5YR4sV8mZgh8w';
+const EMAILJS_SERVICE_ID  = 'service_9sq6odg';
+const EMAILJS_TEMPLATE_ID = '24nnybd';
+
+function loadEmailJS() {
+  return new Promise((resolve) => {
+    if (window.emailjs) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js';
+    s.onload = () => { window.emailjs.init(EMAILJS_PUBLIC_KEY); resolve(); };
+    document.head.appendChild(s);
+  });
+}
+
+async function sendDailyReportEmail({ storeName, month, day, fields, beginRecord }) {
+  await loadEmailJS();
+
+  const label = (k) => ({ rentalRevenue:'Rental Revenue', damageWaivers:'Damage Waivers',
+    renewalFees:'Renewal Fees', agreementFees:'Agreement Fees', clubFees:'Club Fees',
+    ihcFees:'IHC Fees (Trip Fee)', cashSales:'Cash Sales', customers:'Customers',
+    parr:'PARR', bor:'BOR', apu:'APU' })[k] || k;
+
+  const revenueKeys = ['rentalRevenue','damageWaivers','renewalFees','agreementFees','clubFees','ihcFees','cashSales'];
+  const total = revenueKeys.reduce((s, k) => s + (Number(fields[k]) || 0), 0);
+  const gmBudget = Number(beginRecord.budgetGoodMoney || 0);
+  const gmPct = gmBudget ? ((total / gmBudget) * 100).toFixed(1) + '%' : '—';
+
+  const revRows = revenueKeys.map((k) => `${label(k)}: ${fmtMoney(Number(fields[k]) || 0)}`).join('\n');
+  const portfolioRows = ['customers','parr','bor','apu'].map((k) => {
+    const v = Number(fields[k]) || 0;
+    return `${label(k)}: ${k === 'customers' || k === 'bor' ? fmtNum(v) : fmtMoney(v)}`;
+  }).join('\n');
+
+  const report = [
+    `📍 ${storeName}`,
+    `📅 ${monthLabel(month)} — Day ${day}`,
+    '',
+    '── REVENUE (Month-to-Date) ──',
+    revRows,
+    `TOTAL GOOD MONEY: ${fmtMoney(total)}`,
+    gmBudget ? `% of Budget: ${gmPct}` : '',
+    '',
+    '── CUSTOMERS & PORTFOLIO ──',
+    portfolioRows,
+  ].filter((l) => l !== undefined).join('\n');
+
+  const dateStr = `${monthLabel(month)} Day ${day}`;
+
+  await window.emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
+    store: storeName,
+    date: dateStr,
+    report,
+    name: storeName,
+    email: 'jciesicki@gmail.com',
+  });
+}
+
 const API = '/api';
 
 const state = {
@@ -358,6 +416,7 @@ function StoreScreen() {
         </div>
         <button id="saveBtn">Save today's numbers</button>
         <button class="secondary" id="printReportBtn" type="button">Print team report</button>
+        <button class="send-josh" id="sendJoshBtn" type="button">📧 Send to Josh</button>
       </div>
 
       <div class="card">
@@ -552,6 +611,28 @@ function StoreScreen() {
     if (!w) { alert('Please allow pop-ups for this site to view the printable report.'); return; }
     w.document.write(reportHtml);
     w.document.close();
+  });
+
+  wrap.querySelector('#sendJoshBtn').addEventListener('click', async () => {
+    const month = wrap.querySelector('#f_month').value || curMonth;
+    const day = Number(wrap.querySelector('#f_day').value || curDay);
+    const fields = {};
+    ['rentalRevenue','damageWaivers','renewalFees','agreementFees','clubFees','ihcFees','cashSales','customers','parr','bor','apu']
+      .forEach((k) => { fields[k] = wrap.querySelector(`#f_${k}`).value; });
+
+    const btn = wrap.querySelector('#sendJoshBtn');
+    btn.textContent = '⏳ Sending…';
+    btn.disabled = true;
+    try {
+      await sendDailyReportEmail({ storeName: state.storeName, month, day, fields, beginRecord });
+      wrap.querySelector('#msg').innerHTML = '<div class="msg ok">✅ Report sent to Josh!</div>';
+      btn.textContent = '✅ Sent!';
+      setTimeout(() => { btn.textContent = '📧 Send to Josh'; btn.disabled = false; }, 3000);
+    } catch (e) {
+      wrap.querySelector('#msg').innerHTML = `<div class="msg error">❌ Failed to send: ${e.message || e.text || 'Unknown error'}</div>`;
+      btn.textContent = '📧 Send to Josh';
+      btn.disabled = false;
+    }
   });
 
   wrap.querySelector('#saveBeginBtn').addEventListener('click', async () => {
